@@ -3,7 +3,7 @@ This is my solutions to the exercises in Nand2Tetris.
 Progress:
 - [x] Week 1
 - [x] Week 2
-- [] Week 3
+- [x] Week 3
 - [] Week 4
 - [] Week 5
 - [] Week 6
@@ -13,4 +13,3 @@ Progress:
 - [] Week 10
 - [] Week 11
 - [] Week 12
-
