@@ -34,10 +34,44 @@ CHIP CPU {
                          // the current program (reset==0).
 
     OUT outM[16],        // M value output
-        writeM,          // Write to M? 
+        writeM,          // Write to M?
         addressM[15],    // Address in data memory (of M)
         pc[15];          // address of next instruction
 
     PARTS:
     // Put your code here:
+
+    // Identify A or C instruction
+    Mux16(a=instruction, b=outALU, sel=instruction[15], out=valToARegister);
+    // Check whether to update A Register
+    Not(in=instruction[15], out=isAinstruction);
+    And(a=instruction[15], b=instruction[5], out=isCinstructionWritingToA);
+    Or(a=isAinstruction, b=isCinstructionWritingToA, out=isWritingToA);
+    ARegister(in=valToARegister, load=isWritingToA, out=valFromA, out[0..14]=addressM);
+    // Select which value to use, from A Register or D Register
+    Mux16(a=valFromA, b=inM, sel=instruction[12], out=toALU);
+    // Execute calculation
+    ALU(x=valFromD, y=toALU, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=outALU, out=outM, zr=isZero, ng=isNeg);
+    // Check whether to update D Register
+    And(a=instruction[15], b=instruction[4], out=isWritingToD);
+    DRegister(in=outALU, load=isWritingToD, out=valFromD);
+    // Check whether to write the current value to the memory
+    And(a=instruction[3], b=instruction[15], out=writeM);
+    // See if an address jumping occurs or not
+    Not(in=isZero, out=isNonZero);
+    Not(in=isNeg, out=isNonNeg);
+    And(a=isNonZero, b=isNonNeg, out=isPos);
+    Or(a=isZero, b=isNeg, out=isNonPos);
+    DMux8Way(in=instruction[15], sel=instruction[0..2], a=flagNull, b=flagJGT, c=flagJEQ, d=flagJGE, e=flagJLT, f=flagJNE, g=flagJLE, h=jumpJMP);
+    Xor(a=flagNull, b=flagNull, out=jumpNull);
+    And(a=flagJGT, b=isPos, out=jumpJGT);
+    And(a=flagJEQ, b=isZero, out=jumpJEQ);
+    And(a=flagJGE, b=isNonNeg, out=jumpJGE);
+    And(a=flagJLT, b=isNeg, out=jumpJLT);
+    And(a=flagJNE, b=isNonZero, out=jumpJNE);
+    And(a=flagJLE, b=isNonPos, out=jumpJLE);
+    Mux8Way(a=jumpNull, b=jumpJGT, c=jumpJEQ, d=jumpJGE, e=jumpJLT, f=jumpJNE, g=jumpJLE, h=jumpJMP, sel=instruction[0..2], out=jumpOccurs);
+    DMux(in=true, sel=jumpOccurs, a=inc, b=load);
+    // Obtain the address of the next instruction
+    PC(in=valFromA, load=load, inc=inc, reset=reset, out[0..14]=pc);
 }

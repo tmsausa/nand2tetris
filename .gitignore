@@ -1,1 +1,5 @@
 /projects_purely_my_impl/
+*.out
+*.cmp
+*.dat
+*.hack
