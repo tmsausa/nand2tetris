@@ -1,4 +1,5 @@
 /projects_purely_my_impl/
+/__pycache__/
 *.out
 *.cmp
 *.dat
