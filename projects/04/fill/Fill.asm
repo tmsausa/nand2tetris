@@ -6,88 +6,55 @@
 // Runs an infinite loop that listens to the keyboard input.
 // When a key is pressed (any key), the program blackens the screen,
 // i.e. writes "black" in every pixel;
-// the screen should remain fully black as long as the key is pressed. 
+// the screen should remain fully black as long as the key is pressed.
 // When no key is pressed, the program clears the screen, i.e. writes
 // "white" in every pixel;
 // the screen should remain fully clear as long as no key is pressed.
 
 // Put your code here.
 
-// set n 8192 = 2^13.
-    @n
-    M=1
-    D=M
-    D=M+D
-    M=D // 2
-    D=D+M
-    M=D // 4
-    D=D+M
-    M=D // 8
-    D=D+M
-    M=D // 16
-    D=D+M
-    M=D // 32
-    D=D+M
-    M=D // 64
-    D=D+M
-    M=D // 128
-    D=D+M
-    M=D // 256
-    D=D+M
-    M=D // 512
-    D=D+M
-    M=D // 1024
-    D=D+M
-    M=D // 2048
-    D=D+M
-    M=D // 4096
-    D=D+M
-    M=D // 8192
-
-(CHECKKEYPRESSED)
+@8192
+D=M
+@num_repetitions
+M=D
+(CHECK_KEY_PRESSED)
     @KBD
     D=M
-    @BLACKSCREEN
-    D;JNE
-    @WHITESCREEN
+    @BLACKEN_SCREEN
+    D;JGT
+    @WHITEN_SCREEN
     0;JMP
 
-(BLACKSCREEN)
-    @SCREEN
-    D=A
+(BLACKEN_SCREEN)
     @i
     M=0
-    (LOOPBLACK)
-        @i
-        D=M
-        @n
-        D=D-M
-        @CHECKKEYPRESSED
-        D;JEQ
-
-        @i
-        D=M
-        @SCREEN
-        A=A+D
-        M=-1
-        @i
-        M=M+1
-        @LOOPBLACK
-        0;JMP
-
-(WHITESCREEN)
-    @SCREEN
-    D=A
-    @i
-    M=0
-    (LOOPWHITE)
+    (BLK_INNER_LOOP)
     @i
     D=M
-    @n
+    @num_repetitions
     D=D-M
-    @CHECKKEYPRESSED
+    @CHECK_KEY_PRESSED
     D;JEQ
+    @i
+    D=M
+    @SCREEN
+    A=A+D
+    M=-1
+    @i
+    M=M+1
+    @BLK_INNER_LOOP
+    0;JMP
 
+(WHITEN_SCREEN)
+    @i
+    M=0
+    (WTE_INNER_LOOP)
+    @i
+    D=M
+    @num_repetitions
+    D=D-M
+    @CHECK_KEY_PRESSED
+    D;JEQ
     @i
     D=M
     @SCREEN
@@ -95,5 +62,5 @@
     M=0
     @i
     M=M+1
-    @LOOPWHITE
+    @WTE_INNER_LOOP
     0;JMP

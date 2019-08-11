@@ -8,31 +8,26 @@
 
 // Put your code here.
 // time complexity: O(w * 2^w), where w is a word size
-@result
+@R2
 M=0
-
+@R1
+D=M
+@remaining_num_repetitions
+M=D
 (LOOP)
-    @R1
+    @remaining_num_repetitions
     D=M
-    @STORE
+    @INFINITE_LOOP
     D;JEQ
-
-    D=D-1
-    @R1
-    M=D
-
     @R0
     D=M
-    @result
-    M=M+D
+    @R2
+    M=D+M
+    @remaining_num_repetitions
+    M=M-1
     @LOOP
     0;JMP
 
-(STORE)
-    @result
-    D=M
-    @R2
-    M=D
-(END)
-    @END
+(INFINITE_LOOP)
+    @INFINITE_LOOP
     0;JMP
