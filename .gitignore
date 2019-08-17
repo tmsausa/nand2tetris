@@ -1,5 +1,7 @@
 /projects_purely_my_impl/
 /__pycache__/
+/translators/__pycache__/
+/tools/
 *.out
 *.cmp
 *.dat
