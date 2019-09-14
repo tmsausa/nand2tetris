@@ -22,12 +22,12 @@ class CommandType(Enum):
     ARITHMETIC = 0
     PUSH = 1
     POP = 2
-    LABEL = 4
-    GOTO = 5
-    IF = 6
-    FUNCTION = 7
-    RETURN = 8
-    CALL = 9
+    LABEL = 3
+    GOTO = 4
+    IF_GOTO = 5
+    FUNCTION = 6
+    RETURN = 7
+    CALL = 8
 
 
 Command = namedtuple("Command", ("ctype", "arg1", "arg2"))
@@ -51,8 +51,22 @@ class Parser:
             return Command(command_type, arg1, None)
         elif instruction in ("push", "pop"):
             command_type = CommandType.PUSH if instruction == "push" else CommandType.POP
-            arg1, arg2 = blocks[1:]
+            arg1, arg2 = blocks[1:3]
             return Command(command_type, arg1, arg2)
+        elif instruction == "label":
+            command_type = CommandType.LABEL
+            arg1 = blocks[1]
+            return Command(command_type, arg1, None)
+        elif instruction == "goto":
+            command_type = CommandType.GOTO
+            arg1 = blocks[1]
+            return Command(command_type, arg1, None)
+        elif instruction == "if-goto":
+            command_type = CommandType.IF_GOTO
+            arg1 = blocks[1]
+            return Command(command_type, arg1, None)
+        else:
+            raise NotImplementedError("Not implemented yet.")
 
     def __init__(self, path_vm: str):
         with open(path_vm, "r") as fin:
@@ -100,8 +114,13 @@ class Parser:
 class CodeWriter:
     def __init__(self, path_asm: str):
         self.fp = open(path_asm, "w")
-        self.name = Path(path_asm).stem
+        self.file_name = Path(path_asm).stem
+        self.function_name = None
         self.num_commands_written_so_far = 0
+
+    def _writelines(self, translations):
+        self.fp.writelines(translation + "\n" for translation in translations)
+        self.num_commands_written_so_far += 1
 
     def write_arithmetic(self, command: Command) -> None:
         if not command.ctype == CommandType.ARITHMETIC:
@@ -151,8 +170,7 @@ class CodeWriter:
             translations.append({
                 "neg": "M=-M", "not": "M=!M"
             }[command.arg1])
-        self.num_commands_written_so_far += 1
-        self.fp.writelines(translation + "\n" for translation in translations)
+        self._writelines(translations)
 
     def write_push_pop(self, command: Command) -> None:
         if command.ctype not in (CommandType.PUSH, CommandType.POP):
@@ -176,7 +194,7 @@ class CodeWriter:
                 translations.append("@{}".format(addr))
                 translations.append("D=M")
             elif command.arg1 == "static":
-                translations.append("@{}.{}".format(self.name, command.arg2))
+                translations.append("@{}.{}".format(self.file_name, command.arg2))
                 translations.append("D=M")
             else:  # pointer
                 translations.append("@3" if command.arg2 == "0" else "@4")
@@ -200,7 +218,7 @@ class CodeWriter:
             elif command.arg1 == "temp":
                 translations.append("@{}".format(int(command.arg2) + 5))
             elif command.arg1 == "static":
-                translations.append("@{}.{}".format(self.name, command.arg2))
+                translations.append("@{}.{}".format(self.file_name, command.arg2))
             else:  # pointer
                 translations.append("@3" if command.arg2 == "0" else "@4")
             translations.append("D=A")
@@ -213,8 +231,47 @@ class CodeWriter:
             translations.append("@addr")
             translations.append("A=M")
             translations.append("M=D")
-        self.num_commands_written_so_far += 1
-        self.fp.writelines(translation + "\n" for translation in translations)
+        self._writelines(translations)
+
+    def write_label(self, command: Command) -> None:
+        if command.ctype != CommandType.LABEL:
+            raise ValueError("A label command should be passed.")
+        label = command.arg1
+        translations = []
+        translations.append("// label {}".format(label))
+        if self.function_name:
+            # TODO: If this line is within a function, then the appropriate name would be
+            # {}.{}${}.format(file_name, function_name, label)
+            translations.append("({}.{}${})".format(self.file_name, self.function_name, label))
+        else:
+            translations.append("({}${})".format(self.file_name, label))
+        self._writelines(translations)
+
+    def write_goto(self, command: Command) -> None:
+        if command.ctype != CommandType.GOTO:
+            raise ValueError("A goto comand should be passed.")
+        label = "{}.{}${}".format(self.file_name, self.function_name, command.arg1) if self.function_name \
+            else "{}${}".format(self.file_name, command.arg1)
+        translations = []
+        translations.append("// goto {}".format(label))
+        translations.append("@{}".format(label))
+        translations.append("0;JMP")
+        self._writelines(translations)
+
+    def write_if(self, command: Command) -> None:
+        if command.ctype != CommandType.IF_GOTO:
+            raise ValueError("A if-goto command should be passed.")
+        label = "{}.{}${}".format(self.file_name, self.function_name, command.arg1) if self.function_name \
+            else "{}${}".format(self.file_name, command.arg1)
+        translations = []
+        translations.append("// if-goto {}".format(label))
+        translations.append("@SP")
+        translations.append("M=M-1")
+        translations.append("A=M")
+        translations.append("D=M")
+        translations.append("@{}".format(label))
+        translations.append("D;JNE")
+        self._writelines(translations)
 
     def close(self) -> None:
         self.fp.close()
@@ -222,21 +279,26 @@ class CodeWriter:
 
 def main():
     arg_parser = ArgumentParser()
-    arg_parser.add_argument("path_vm", type=str, help="Path to a source vm file")
+    arg_parser.add_argument("path", type=str, help="Path to a source vm file or directory")
     args = arg_parser.parse_args()
 
-    parser = Parser(args.path_vm)
-    dest = args.path_vm.replace(".vm", ".asm")
-    code_writer = CodeWriter(dest)
-    while parser.has_more_commands():
-        parser.advance()
-        if parser.command_type == CommandType.ARITHMETIC:
-            code_writer.write_arithmetic(parser.current_command)
-        elif parser.command_type in (CommandType.PUSH, CommandType.POP):
-            code_writer.write_push_pop(parser.current_command)
-        else:
-            # TODO
-            raise NotImplementedError("Not implemented.")
+    path = Path(args.path)
+    if path.is_file():
+        parser = Parser(args.path)
+        dest = args.path.replace(".vm", ".asm")
+        code_writer = CodeWriter(dest)
+        while parser.has_more_commands():
+            parser.advance()
+            if parser.command_type == CommandType.ARITHMETIC:
+                code_writer.write_arithmetic(parser.current_command)
+            elif parser.command_type in (CommandType.PUSH, CommandType.POP):
+                code_writer.write_push_pop(parser.current_command)
+            elif parser.command_type == CommandType.LABEL:
+                code_writer.write_label(parser.current_command)
+            elif parser.command_type == CommandType.GOTO:
+                code_writer.write_goto(parser.current_command)
+            elif parser.command_type == CommandType.IF_GOTO:
+                code_writer.write_if(parser.current_command)
 
 
 if __name__ == "__main__":
