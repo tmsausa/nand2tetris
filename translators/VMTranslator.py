@@ -154,9 +154,16 @@ class CodeWriter:
         else:
             raise ValueError()
 
-    # TODO
     def write_init(self) -> None:
-        pass
+        translations = []
+        translations.append("// init")
+        translations.append("@256")
+        translations.append("D=A")
+        translations.append("@SP")
+        translations.append("M=D")
+        translations.append("@Sys.init")
+        translations.append("0;JMP")
+        self._writelines(translations)
 
     def set_file_name(self, file_name: str) -> None:
         self.file_name = file_name
