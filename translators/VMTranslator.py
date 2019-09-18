@@ -1,6 +1,6 @@
 from pathlib import Path
 from argparse import ArgumentParser
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 from enum import Enum
 from typing import Tuple
 
@@ -127,6 +127,7 @@ class CodeWriter:
         self.fp = open(path_asm, "w")
         self.file_name = Path(path_asm).stem
         self.function_name = None
+        self.num_called = defaultdict(int)
         self.num_commands_written_so_far = 0
 
     def _writelines(self, translations):
@@ -134,8 +135,6 @@ class CodeWriter:
         self.num_commands_written_so_far += 1
 
     def write_arithmetic(self, command: Command) -> None:
-        if not command.ctype == CommandType.ARITHMETIC:
-            raise ValueError("An arithmetic command should be passed.")
         translations = ["// {}".format(command.arg1)]
         if command.arg1 in ("add", "sub", "and", "or"):
             translations.append("@SP")
@@ -184,8 +183,6 @@ class CodeWriter:
         self._writelines(translations)
 
     def write_push_pop(self, command: Command) -> None:
-        if command.ctype not in (CommandType.PUSH, CommandType.POP):
-            raise ValueError("A push or pop command should be passed.")
         translations = []
         if command.ctype == CommandType.PUSH:
             translations.append("// {} {} {}".format("push", command.arg1, command.arg2))
@@ -245,8 +242,6 @@ class CodeWriter:
         self._writelines(translations)
 
     def write_label(self, command: Command) -> None:
-        if command.ctype != CommandType.LABEL:
-            raise ValueError("A label command should be passed.")
         label = command.arg1
         translations = []
         translations.append("// label {}".format(label))
@@ -259,8 +254,6 @@ class CodeWriter:
         self._writelines(translations)
 
     def write_goto(self, command: Command) -> None:
-        if command.ctype != CommandType.GOTO:
-            raise ValueError("A goto comand should be passed.")
         label = "{}.{}${}".format(self.file_name, self.function_name, command.arg1) if self.function_name \
             else "{}${}".format(self.file_name, command.arg1)
         translations = []
@@ -270,8 +263,6 @@ class CodeWriter:
         self._writelines(translations)
 
     def write_if(self, command: Command) -> None:
-        if command.ctype != CommandType.IF_GOTO:
-            raise ValueError("A if-goto command should be passed.")
         label = "{}.{}${}".format(self.file_name, self.function_name, command.arg1) if self.function_name \
             else "{}${}".format(self.file_name, command.arg1)
         translations = []
@@ -282,6 +273,105 @@ class CodeWriter:
         translations.append("D=M")
         translations.append("@{}".format(label))
         translations.append("D;JNE")
+        self._writelines(translations)
+
+    def write_function(self, command: Command) -> None:
+        self.function_name, num_local_variables = command.arg1, int(command.arg2)
+        translations = []
+        translations.append("// function {} {}".format(command.arg1, command.arg2))
+        translations.append("({}.{})".format(self.file_name, self.function_name))
+        # push 0 num_local_variables times
+        translations.append("@SP")
+        translations.append("A=M")
+        for _ in range(num_local_variables):
+            translations.append("M=0")
+            translations.append("A=A+1")
+        translations.append("@{}".format(num_local_variables))
+        translations.append("D=A")
+        translations.append("@SP")
+        translations.append("M=M+D")
+        self._writelines(translations)
+
+    def write_call(self, command: Command) -> None:
+        function_name, num_args = command.arg1, int(command.arg2)
+        translations = []
+        translations.append("// call {} {}".format(function_name, num_args))
+        # push ret_addr
+        translations.append("@{}.{}$ret.{}".format(self.file_name, function_name, self.num_called[function_name]))
+        translations.append("D=A")
+        translations.append("@SP")
+        translations.append("A=M")
+        translations.append("M=D")
+        translations.append("@SP")
+        translations.append("M=M+1")
+        # push LCL, ARG, THIS, THAT
+        for mem in ("LCL", "ARG", "THIS", "THAT"):
+            translations.append("@{}".format(mem))
+            translations.append("D=M")
+            translations.append("@SP")
+            translations.append("A=M")
+            translations.append("M=D")
+            translations.append("@SP")
+            translations.append("M=M+1")
+        # ARG = SP - 5 - num_args
+        translations.append("@SP")
+        translations.append("D=M")
+        translations.append("@5")
+        translations.append("D=D-A")
+        translations.append("@{}".format(num_args))
+        translations.append("D=D-A")
+        translations.append("@ARG")
+        translations.append("M=D")
+        # LCL = SP
+        translations.append("@SP")
+        translations.append("D=M")
+        translations.append("@LCL")
+        translations.append("M=D")
+        # goto function_name
+        translations.append("@{}.{}".format(self.file_name, function_name))
+        translations.append("0;JMP")
+        # label ret_addr
+        translations.append("({}.{}$ret.{})".format(self.file_name, function_name, self.num_called[function_name]))
+        self.num_called[function_name] += 1
+        self._writelines(translations)
+
+    def write_return(self) -> None:
+        translations = []
+        translations.append("// return")
+        # end_frame = LCL
+        translations.append("@LCL")
+        translations.append("D=M")
+        translations.append("@end_frame")
+        translations.append("M=D")
+        # *ARG = pop()
+        translations.append("@SP")
+        translations.append("A=M")
+        translations.append("A=A-1")
+        translations.append("D=M")
+        translations.append("@ARG")
+        translations.append("A=M")
+        translations.append("M=D")
+        # SP = ARG + 1
+        translations.append("@ARG")
+        translations.append("D=M")
+        translations.append("@SP")
+        translations.append("M=D+1")
+        # restore THAT, THIS, ARG, LCL to the caller's state
+        for dist, addr in enumerate(("THAT", "THIS", "ARG", "LCL"), start=1):
+            translations.append("@end_frame")
+            translations.append("D=M")
+            translations.append("@{}".format(dist))
+            translations.append("A=D-A")
+            translations.append("D=M")
+            translations.append("@{}".format(addr))
+            translations.append("M=D")
+        # goto ret_addr
+        translations.append("@end_frame")
+        translations.append("D=M")
+        translations.append("@5")
+        translations.append("A=D-A")
+        translations.append("A=M")
+        translations.append("0;JMP")
         self._writelines(translations)
 
     def close(self) -> None:
@@ -310,8 +400,14 @@ def main():
                 code_writer.write_goto(parser.current_command)
             elif parser.command_type == CommandType.IF_GOTO:
                 code_writer.write_if(parser.current_command)
+            elif parser.command_type == CommandType.FUNCTION:
+                code_writer.write_function(parser.current_command)
+            elif parser.command_type == CommandType.CALL:
+                code_writer.write_call(parser.current_command)
+            elif parser.command_type == CommandType.RETURN:
+                code_writer.write_return()
             else:
-                raise NotImplementedError()
+                raise ValueError()
 
 
 if __name__ == "__main__":
