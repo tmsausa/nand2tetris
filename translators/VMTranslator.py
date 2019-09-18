@@ -2,7 +2,7 @@ from pathlib import Path
 from argparse import ArgumentParser
 from collections import namedtuple, defaultdict
 from enum import Enum
-from typing import Tuple
+from typing import Tuple, Optional
 
 
 ARITHMETIC_OPERATIONS = {
@@ -134,6 +134,34 @@ class CodeWriter:
         self.fp.writelines(translation + "\n" for translation in translations)
         self.num_commands_written_so_far += 1
 
+    def write_command(self, command: Command) -> None:
+        if command.ctype == CommandType.ARITHMETIC:
+            self.write_arithmetic(command)
+        elif command.ctype in (CommandType.PUSH, CommandType.POP):
+            self.write_push_pop(command)
+        elif command.ctype == CommandType.LABEL:
+            self.write_label(command)
+        elif command.ctype == CommandType.GOTO:
+            self.write_goto(command)
+        elif command.ctype == CommandType.IF_GOTO:
+            self.write_if(command)
+        elif command.ctype == CommandType.CALL:
+            self.write_call(command)
+        elif command.ctype == CommandType.FUNCTION:
+            self.write_function(command)
+        elif command.ctype == CommandType.RETURN:
+            self.write_return()
+        else:
+            raise ValueError()
+
+    # TODO
+    def write_init(self) -> None:
+        pass
+
+    def set_file_name(self, file_name: str) -> None:
+        self.file_name = file_name
+        self.num_commands_written_so_far = 0
+
     def write_arithmetic(self, command: Command) -> None:
         translations = ["// {}".format(command.arg1)]
         if command.arg1 in ("add", "sub", "and", "or"):
@@ -157,14 +185,14 @@ class CodeWriter:
             translations.append("A=A-1")
             translations.append("M=M-D")
             translations.append("D=M")
-            translations.append("@IF_TRUE_{}".format(self.num_commands_written_so_far))
+            translations.append("@{}.IF_TRUE_{}".format(self.file_name, self.num_commands_written_so_far))
             translations.append({
                 "eq": "D;JEQ", "gt": "D;JGT", "lt": "D;JLT"
             }[command.arg1])
             translations.append("D=0")
             translations.append("@STORE_{}".format(self.num_commands_written_so_far))
             translations.append("0;JMP")
-            translations.append("(IF_TRUE_{})".format(self.num_commands_written_so_far))
+            translations.append("({}.IF_TRUE_{})".format(self.file_name, self.num_commands_written_so_far))
             translations.append("\tD=-1")
             translations.append("@STORE_{}".format(self.num_commands_written_so_far))
             translations.append("0;JMP")
@@ -246,15 +274,16 @@ class CodeWriter:
         translations = []
         translations.append("// label {}".format(label))
         if self.function_name:
-            # TODO: If this line is within a function, then the appropriate name would be
             # {}.{}${}.format(file_name, function_name, label)
-            translations.append("({}.{}${})".format(self.file_name, self.function_name, label))
+            # assuming that function_name starts with the ${filename}.
+            translations.append("{}${}".format(self.function_name, label))
         else:
             translations.append("({}${})".format(self.file_name, label))
         self._writelines(translations)
 
     def write_goto(self, command: Command) -> None:
-        label = "{}.{}${}".format(self.file_name, self.function_name, command.arg1) if self.function_name \
+        # assuming that function_name starts with the ${filename}.
+        label = "{}${}".format(self.function_name, command.arg1) if self.function_name \
             else "{}${}".format(self.file_name, command.arg1)
         translations = []
         translations.append("// goto {}".format(label))
@@ -263,7 +292,8 @@ class CodeWriter:
         self._writelines(translations)
 
     def write_if(self, command: Command) -> None:
-        label = "{}.{}${}".format(self.file_name, self.function_name, command.arg1) if self.function_name \
+        # assuming that function_name starts with the ${filename}.
+        label = "{}${}".format(self.function_name, command.arg1) if self.function_name \
             else "{}${}".format(self.file_name, command.arg1)
         translations = []
         translations.append("// if-goto {}".format(label))
@@ -279,7 +309,8 @@ class CodeWriter:
         self.function_name, num_local_variables = command.arg1, int(command.arg2)
         translations = []
         translations.append("// function {} {}".format(command.arg1, command.arg2))
-        translations.append("({}.{})".format(self.file_name, self.function_name))
+        # assuming that function_name starts with the ${filename}.
+        translations.append("({})".format(self.function_name))
         # push 0 num_local_variables times
         translations.append("@SP")
         translations.append("A=M")
@@ -297,7 +328,8 @@ class CodeWriter:
         translations = []
         translations.append("// call {} {}".format(function_name, num_args))
         # push ret_addr
-        translations.append("@{}.{}$ret.{}".format(self.file_name, function_name, self.num_called[function_name]))
+        # assuming that function_name starts with the ${filename}.
+        translations.append("@{}$ret.{}".format(function_name, self.num_called[function_name]))
         translations.append("D=A")
         translations.append("@SP")
         translations.append("A=M")
@@ -328,10 +360,12 @@ class CodeWriter:
         translations.append("@LCL")
         translations.append("M=D")
         # goto function_name
-        translations.append("@{}.{}".format(self.file_name, function_name))
+        # assuming that function_name starts with the ${filename}.
+        translations.append("@{}".format(function_name))
         translations.append("0;JMP")
         # label ret_addr
-        translations.append("({}.{}$ret.{})".format(self.file_name, function_name, self.num_called[function_name]))
+        # assuming that function_name starts with the ${filename}.
+        translations.append("({}$ret.{})".format(function_name, self.num_called[function_name]))
         self.num_called[function_name] += 1
         self._writelines(translations)
 
@@ -383,31 +417,30 @@ def main():
     arg_parser.add_argument("path", type=str, help="Path to a source vm file or directory")
     args = arg_parser.parse_args()
 
-    path = Path(args.path)
+    path = Path(args.path).resolve()
     if path.is_file():
         parser = Parser(args.path)
         dest = args.path.replace(".vm", ".asm")
         code_writer = CodeWriter(dest)
         while parser.has_more_commands():
             parser.advance()
-            if parser.command_type == CommandType.ARITHMETIC:
-                code_writer.write_arithmetic(parser.current_command)
-            elif parser.command_type in (CommandType.PUSH, CommandType.POP):
-                code_writer.write_push_pop(parser.current_command)
-            elif parser.command_type == CommandType.LABEL:
-                code_writer.write_label(parser.current_command)
-            elif parser.command_type == CommandType.GOTO:
-                code_writer.write_goto(parser.current_command)
-            elif parser.command_type == CommandType.IF_GOTO:
-                code_writer.write_if(parser.current_command)
-            elif parser.command_type == CommandType.FUNCTION:
-                code_writer.write_function(parser.current_command)
-            elif parser.command_type == CommandType.CALL:
-                code_writer.write_call(parser.current_command)
-            elif parser.command_type == CommandType.RETURN:
-                code_writer.write_return()
-            else:
-                raise ValueError()
+            code_writer.write_command(parser.current_command)
+        code_writer.close()
+    else:
+        assert(path.is_dir())
+        dest = str(path / (path.stem + ".asm"))
+        code_writer = CodeWriter(dest)
+        code_writer.write_init()
+        for file_path in path.iterdir():
+            if file_path.suffix != ".asm":
+                continue
+            file_name = file_path.stem
+            code_writer.set_file_name(file_name)
+            parser = Parser(str(file_path))
+            while parser.has_more_commands():
+                parser.advance()
+                code_writer.write_command(parser.current_command)
+        code_writer.close()
 
 
 if __name__ == "__main__":
