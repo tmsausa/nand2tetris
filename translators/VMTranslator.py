@@ -65,8 +65,19 @@ class Parser:
             command_type = CommandType.IF_GOTO
             arg1 = blocks[1]
             return Command(command_type, arg1, None)
+        elif instruction == "call":
+            command_type = CommandType.CALL
+            arg1, arg2 = blocks[1:3]
+            return Command(command_type, arg1, arg2)
+        elif instruction == "function":
+            command_type = CommandType.FUNCTION
+            arg1, arg2 = blocks[1:3]
+            return Command(command_type, arg1, arg2)
+        elif instruction == "return":
+            command_type = CommandType.RETURN
+            return Command(command_type, None, None)
         else:
-            raise NotImplementedError("Not implemented yet.")
+            raise NotImplementedError("Commandtype {} is not implemented.".format(instruction))
 
     def __init__(self, path_vm: str):
         with open(path_vm, "r") as fin:
@@ -299,6 +310,8 @@ def main():
                 code_writer.write_goto(parser.current_command)
             elif parser.command_type == CommandType.IF_GOTO:
                 code_writer.write_if(parser.current_command)
+            else:
+                raise NotImplementedError()
 
 
 if __name__ == "__main__":
