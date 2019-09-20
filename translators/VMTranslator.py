@@ -161,9 +161,52 @@ class CodeWriter:
         translations.append("D=A")
         translations.append("@SP")
         translations.append("M=D")
-        translations.append("@Sys.init")
+        # push ret_addr
+        function_name = "Sys.init"
+        num_args = 0
+        # assuming that function_name starts with the ${filename}.
+        translations.append("@{}$ret.{}".format(function_name, self.num_called[function_name]))
+        translations.append("D=A")
+        translations.append("@SP")
+        translations.append("A=M")
+        translations.append("M=D")
+        translations.append("@SP")
+        translations.append("M=M+1")
+        # push LCL, ARG, THIS, THAT
+        for mem in ("LCL", "ARG", "THIS", "THAT"):
+            translations.append("@{}".format(mem))
+            translations.append("D=M")
+            translations.append("@SP")
+            translations.append("A=M")
+            translations.append("M=D")
+            translations.append("@SP")
+            translations.append("M=M+1")
+        # ARG = SP - 5 - num_args
+        translations.append("@SP")
+        translations.append("D=M")
+        translations.append("@5")
+        translations.append("D=D-A")
+        translations.append("@{}".format(num_args))
+        translations.append("D=D-A")
+        translations.append("@ARG")
+        translations.append("M=D")
+        # LCL = SP
+        translations.append("@SP")
+        translations.append("D=M")
+        translations.append("@LCL")
+        translations.append("M=D")
+        # goto function_name
+        # assuming that function_name starts with the ${filename}.
+        translations.append("@{}".format(function_name))
         translations.append("0;JMP")
+        # label ret_addr
+        # assuming that function_name starts with the ${filename}.
+        translations.append("({}$ret.{})".format(function_name, self.num_called[function_name]))
+        self.num_called[function_name] += 1
         self._writelines(translations)
+        # translations.append("@Sys.init")
+        # translations.append("0;JMP")
+        # self._writelines(translations)
 
     def set_file_name(self, file_name: str) -> None:
         self.file_name = file_name
@@ -283,7 +326,7 @@ class CodeWriter:
         if self.function_name:
             # {}.{}${}.format(file_name, function_name, label)
             # assuming that function_name starts with the ${filename}.
-            translations.append("{}${}".format(self.function_name, label))
+            translations.append("({}${})".format(self.function_name, label))
         else:
             translations.append("({}${})".format(self.file_name, label))
         self._writelines(translations)
@@ -384,6 +427,12 @@ class CodeWriter:
         translations.append("D=M")
         translations.append("@end_frame")
         translations.append("M=D")
+        # ret_addr = *(end_frame - 5)
+        translations.append("@5")
+        translations.append("A=D-A")
+        translations.append("D=M")
+        translations.append("@ret_addr")
+        translations.append("M=D")
         # *ARG = pop()
         translations.append("@SP")
         translations.append("A=M")
@@ -407,10 +456,7 @@ class CodeWriter:
             translations.append("@{}".format(addr))
             translations.append("M=D")
         # goto ret_addr
-        translations.append("@end_frame")
-        translations.append("D=M")
-        translations.append("@5")
-        translations.append("A=D-A")
+        translations.append("@ret_addr")
         translations.append("A=M")
         translations.append("0;JMP")
         self._writelines(translations)
@@ -439,7 +485,7 @@ def main():
         code_writer = CodeWriter(dest)
         code_writer.write_init()
         for file_path in path.iterdir():
-            if file_path.suffix != ".asm":
+            if file_path.suffix != ".vm":
                 continue
             file_name = file_path.stem
             code_writer.set_file_name(file_name)
